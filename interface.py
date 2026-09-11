@@ -96,6 +96,7 @@ class MainWindow(QMainWindow):
         self.leitor.state.connect(self.mostrar_estado)
 
         self.navigate()
+        self.leitor.state.connect(self.mostrar_estado)
         self.leitor.start()
 
     @Slot(float, list)
