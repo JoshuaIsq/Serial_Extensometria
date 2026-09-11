@@ -1,14 +1,18 @@
-def line_interpretation(text):
+import math
 
-    part = text.strip().split(',')
+def line_interpreter(text):
+    part = text.strip().split(",")
 
     if len(part) != 4:
-        return None  # Retorna None se a linha não tiver exatamente 4 partes, passível de mudança em placas futuras
+        return None
 
-    try:
-        valores = [int(text_size) for text_size in part]  # Converte cada parte para inteiro e os transforma em uma lista
+    try: 
+        values = [float(parte) for parte in part] 
 
     except ValueError:
-        return None  # Retorna None se houver algum erro na conversão para inteiro
+        return None
 
-    return valores  #
+    return [
+        valor if math.isfinite(valor) else math.nan
+        for valor in values
+    ]
