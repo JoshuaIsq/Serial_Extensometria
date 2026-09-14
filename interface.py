@@ -1,13 +1,15 @@
 import sys
 from collections import deque
-
-from PySide6.QtCore import QTimer, Slot, Qt
+from pathlib import Path
+from PySide6.QtCore import QTimer, Slot, Qt, QStandardPaths
 from leitor_serial import LeitorSerial
 from PySide6.QtWidgets import (QApplication, QLabel, QMainWindow, QToolBar, QCheckBox, 
-                               QPushButton,  QWidget, QVBoxLayout, QTabBar, QStackedWidget, QLabel, QListWidget)
+                               QPushButton,  QWidget, QVBoxLayout, QTabBar, QStackedWidget, QMessageBox)
 
 import pyqtgraph as pg
+from leitor_serial import LeitorSerial
 from pagina_aquisição import PaginaAquisição
+from gravacao import GravadorTxt
 
 class MainWindow(QMainWindow):
 
@@ -61,7 +63,15 @@ class MainWindow(QMainWindow):
         self.pause_button.setChecked(True)
         self.pause_button.toggled.connect(self.alternar_pausa) 
         self.channel_bar.addWidget(self.pause_button)
-        self.channel_bar.addSeparator
+        self.channel_bar.addSeparator()
+
+        self.recorder = GravadorTxt()
+        self.record_button = QPushButton("Gravar em .Txt")
+        self.record_button.clicked.connect(self.alternar_gravacao)
+        self.channel_bar.addSeparator()
+        self.channel_bar.addWidget(self.record_button)
+        self.record_status = QLabel("Txt: Parado")
+        self.channel_bar.addWidget(self.record_status)
 
         #Seleção de canais
         self.seletor = []
@@ -103,13 +113,19 @@ class MainWindow(QMainWindow):
     @Slot(float, list)
 
     def receber_dados(self, tempo, valores):
-        # Guarda o tempo e os quatro canais na mesma posição.
+        # Grava independentemente de o gráfico estar pausado.
+        try:
+            self.recorder.register(valores)
+        except OSError as erro:
+            self.tratar_erro_gravacao(erro)
+
+        # Histórico usado para desenhar o gráfico.
         self.tempos.append(tempo)
 
         for i, valor in enumerate(valores):
             self.valores_canais[i].append(valor)
 
-        # Mantém apenas os últimos 10 segundos.
+        # Mantém apenas os últimos 10 segundos no histórico visual.
         while self.tempos and self.tempos[0] < tempo - 10:
             self.tempos.popleft()
 
@@ -129,13 +145,61 @@ class MainWindow(QMainWindow):
 
         self.grafico.setXRange(fim - 10, fim, padding=0,)
 
+    @Slot()
+    def alternar_gravacao(self):
+        try:
+            if self.recorder.active:
+                self.recorder.stop()
+
+                self.record_button.setText("Iniciar gravação TXT")
+                self.record_status.setText("TXT: salvo")
+
+            else:
+                area_trabalho = QStandardPaths.writableLocation(
+                    QStandardPaths.StandardLocation.DesktopLocation
+                )
+
+                if not area_trabalho:
+                    raise OSError(
+                        "Não foi possível localizar a Área de Trabalho."
+                    )
+
+                pasta = Path(area_trabalho) / "SerialMonitor_Logs"
+
+                self.recorder.start(pasta)
+
+                self.record_button.setText("Parar gravação TXT")
+                self.record_status.setText("TXT: gravando")
+                self.record_status.setToolTip(
+                    str(self.recorder.caminho)
+                )
+
+        except OSError as erro:
+            self.tratar_erro_gravacao(erro)
+
+    def tratar_erro_gravacao(self, erro):
+        # Interrompe a gravação caso ocorra uma falha de escrita.
+        mensagem = str(erro)
+
+        try:
+            self.recorder.stop()
+        except OSError as erro_fechamento:
+            mensagem += f"\nFalha ao fechar: {erro_fechamento}"
+
+        self.record_button.setText("Iniciar gravação TXT")
+        self.record_status.setText("TXT: erro de gravação")
+
+        QMessageBox.warning(
+            self,
+            "Erro na gravação",
+            f"A gravação foi interrompida.\n\n{mensagem}",
+        )
+
     @Slot(str)
     def mostrar_estado(self, mensagem):
         self.statusBar().showMessage(mensagem)
 
     def closeEvent(self, event):
-
-        # Pede que a leitura termine e libere a COM3.
         self.leitor.requestInterruption()
 
         if not self.leitor.wait(1000):
@@ -145,6 +209,12 @@ class MainWindow(QMainWindow):
             return
 
         self.timer.stop()
+
+        try:
+            self.recorder.stop()
+        except OSError as erro:
+            self.tratar_erro_gravacao(erro)
+
         event.accept()
 
     def navigate(self):
